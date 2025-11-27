@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Two-Color Knight Puzzle</title>
+    <title>Robust Knight Puzzle</title>
     <style>
         body {
             font-family: 'Segoe UI', sans-serif;
@@ -29,6 +29,7 @@
             padding: 15px;
             border-radius: 10px;
             box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+            border: 1px solid #333;
         }
 
         .row { display: flex; gap: 10px; align-items: center; }
@@ -86,12 +87,12 @@
         
         .color-picker.selected {
             transform: scale(1.1);
-            border-color: #007bff; /* Blue selection ring */
+            border-color: #007bff;
             box-shadow: 0 0 8px #007bff;
         }
 
         /* --- Status --- */
-        .status-bar { height: 25px; margin-bottom: 5px; font-size: 16px; }
+        .status-bar { height: 25px; margin-bottom: 5px; font-size: 16px; text-align: center; }
         .error { color: #ff6b6b; }
         .success { color: #51cf66; font-weight: bold; font-size: 18px; }
 
@@ -170,7 +171,6 @@
         
         .k-black { 
             color: #000; 
-            /* White outline to make black piece visible on dark bg */
             text-shadow: 
                 -1px -1px 0 #888,  
                 1px -1px 0 #888,
@@ -217,16 +217,13 @@
 
 <script>
     // --- Data ---
-    // Grid: 4x4. 1=Valid, 0=Void
+    // Grid: 4x4. 1=Valid, 0=Void. 
+    // Logic: row index 3 is Bottom, 0 is Top visually in loop, but let's stick to Cartesian standard:
+    // r=0 Bottom, r=3 Top.
     let gridShape = [
-        [0,0,0,0], [0,0,0,1], [0,1,1,1], [1,1,1,1] // Staircase (Bottom-Left logic)
+        [0,0,0,0], [0,0,0,1], [0,1,1,1], [1,1,1,1] 
     ];
 
-    // Pieces have {c, r, color}
-    // Default: Start matches left image (White), Target matches right image (Black/White or same color)
-    // To match your original image request: The image showed White moving to White positions.
-    // But since you asked for 2 colors, I'll default to a mix for demo.
-    
     let startKnights = [
         {c: 0, r: 0, color: 'white'}, 
         {c: 0, r: 3, color: 'white'}, 
@@ -234,8 +231,6 @@
         {c: 2, r: 1, color: 'white'}
     ];
     
-    // Let's make the target slightly interesting: maybe swap 2 to black?
-    // Or keep them white as per original image. Let's keep white for defaults.
     let targetKnights = [
         {c: 1, r: 0, color: 'white'}, 
         {c: 1, r: 2, color: 'white'}, 
@@ -253,12 +248,12 @@
     // --- Helpers ---
     const clone = (o) => JSON.parse(JSON.stringify(o));
     
-    // Map Cartesian (c, r) to Array [row][col]
-    // r=0 is bottom (Array index 3)
     function isSquareValid(c, r) {
         if (c<0 || c>=4 || r<0 || r>=4) return false;
+        // Map Cartesian r to Array index: row 0 is bottom (index 3)
         return gridShape[3-r][c] === 1;
     }
+    
     function setSquareValid(c, r, val) {
         gridShape[3-r][c] = val ? 1 : 0;
     }
@@ -287,15 +282,17 @@
             btn.classList.add('active');
             tools.classList.add('visible');
             area.classList.add('editing');
-            // Enter edit: Start config becomes editable canvas
+            
+            // Enter edit mode
             currentKnights = clone(startKnights);
-            updateStatus("Edit Mode: Click to add/remove.");
+            updateStatus("Edit Mode: Click square to add/remove.");
         } else {
             btn.textContent = "Edit Puzzle";
             btn.classList.remove('active');
             tools.classList.remove('visible');
             area.classList.remove('editing');
-            // Exit edit: Save canvas as new Start config
+            
+            // Save state
             startKnights = clone(currentKnights);
             resetGame();
         }
@@ -316,44 +313,47 @@
         activeColor = color;
         document.getElementById('cpWhite').classList.toggle('selected', color === 'white');
         document.getElementById('cpBlack').classList.toggle('selected', color === 'black');
-        setEditTool('pieces'); // Auto-switch back to piece tool if clicking color
+        setEditTool('pieces'); 
     }
 
     // --- Interaction ---
     function handleBoardClick(boardType, c, r) {
-        // boardType: 'main' or 'goal'
         if (isEditing) handleEditClick(boardType, c, r);
         else if (boardType === 'main') handlePlayClick(c, r);
     }
 
     function handleEditClick(boardType, c, r) {
-        // 1. Grid Editing (Affects both boards visually, but logic runs once)
+        // --- 1. Grid Shape Editing ---
         if (editTool === 'grid') {
-            if (boardType === 'goal') return; // Only edit shape on main board to avoid confusion
+            if (boardType === 'goal') return; // Edit shape only on left board
             
             const currentlyValid = isSquareValid(c, r);
+            
+            // Toggle validity
             setSquareValid(c, r, !currentlyValid);
             
-            // Clean up pieces on deleted squares
-            if (currentlyValid) { // was valid, now invalid
+            // CRITICAL FIX: If we just REMOVED a square (it was valid, now invalid)
+            // We must remove any knight on that square from BOTH Start and Goal lists.
+            if (currentlyValid) { 
                 currentKnights = currentKnights.filter(k => !(k.c===c && k.r===r));
                 targetKnights = targetKnights.filter(k => !(k.c===c && k.r===r));
             }
+            
             validateCounts();
             render();
             return;
         }
 
-        // 2. Piece Editing
-        if (!isSquareValid(c, r)) return;
+        // --- 2. Piece Editing ---
+        if (!isSquareValid(c, r)) return; // Can't put pieces on void
 
-        // Select which array we are modifying
+        // Decide which list we are editing
         let arr = (boardType === 'main') ? currentKnights : targetKnights;
 
         const idx = arr.findIndex(k => k.c === c && k.r === r);
         
         if (idx === -1) {
-            // Empty -> Add Active Color
+            // Empty -> Add Piece
             arr.push({c, r, color: activeColor});
         } else {
             // Occupied
@@ -361,7 +361,7 @@
                 // Same color -> Remove
                 arr.splice(idx, 1);
             } else {
-                // Different color -> Switch
+                // Diff color -> Swap color
                 arr[idx].color = activeColor;
             }
         }
@@ -417,7 +417,6 @@
     function checkWin() {
         if (isEditing) return;
 
-        // Strictly check that every current knight has an EXACT match (pos + color) in target
         let matches = 0;
         currentKnights.forEach(k => {
             const hasMatch = targetKnights.some(t => t.c === k.c && t.r === k.r && t.color === k.color);
@@ -451,9 +450,13 @@
                 const cell = document.createElement('div');
                 cell.className = 'cell';
                 
-                if (isSquareValid(c, r)) {
+                // Get validity from gridShape
+                const valid = isSquareValid(c, r);
+                
+                if (valid) {
                     cell.classList.add('valid');
                     
+                    // Render Knight
                     const kIdx = knights.findIndex(k => k.c===c && k.r===r);
                     if (kIdx !== -1) {
                         const k = knights[kIdx];
@@ -463,14 +466,16 @@
                         cell.appendChild(span);
                     }
 
-                    // Interactive classes
+                    // Interactive logic
                     if (isEditing) {
-                        if (editTool==='grid' && isMain) {} // Handled by CSS
-                        else cell.classList.add('clickable');
+                        if (editTool==='grid' && isMain) { 
+                            // Grid editing hover handled by CSS
+                        } else {
+                             cell.classList.add('clickable');
+                        }
                     } else if (isMain && !isSolved) {
                         cell.classList.add('clickable');
                         if (selectedIndex !== null && kIdx === selectedIndex) cell.classList.add('selected');
-                        // Highlight moves
                         if (selectedIndex !== null && kIdx === -1) {
                             const active = currentKnights[selectedIndex];
                             if (canMove(active.c, active.r, c, r)) cell.classList.add('possible-move');
