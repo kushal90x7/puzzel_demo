@@ -1,0 +1,493 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Two-Color Knight Puzzle</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', sans-serif;
+            background-color: #1a1a1a;
+            color: #eee;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            margin: 0;
+            user-select: none;
+        }
+
+        /* --- Controls --- */
+        .controls {
+            margin-bottom: 15px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 10px;
+            background: #2a2a2a;
+            padding: 15px;
+            border-radius: 10px;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+        }
+
+        .row { display: flex; gap: 10px; align-items: center; }
+
+        button {
+            padding: 8px 16px;
+            border-radius: 4px;
+            border: 1px solid #555;
+            cursor: pointer;
+            font-weight: bold;
+            font-size: 13px;
+            background: #444;
+            color: white;
+            transition: all 0.2s;
+        }
+
+        button:hover { background: #555; }
+        
+        .btn-edit { background: #007bff; border-color: #0056b3; }
+        .btn-edit:hover { background: #0056b3; }
+        .btn-edit.active { background: #ffc107; color: black; border-color: #e0a800; }
+
+        /* Tool Selectors */
+        .tool-group {
+            display: none; /* Hidden unless editing */
+            gap: 5px;
+            background: #333;
+            padding: 5px;
+            border-radius: 20px;
+        }
+        .tool-group.visible { display: flex; }
+
+        .tool-btn {
+            background: transparent;
+            color: #aaa;
+            border: none;
+            border-radius: 15px;
+        }
+        .tool-btn.selected { background: #eee; color: #111; }
+
+        /* Color Pickers */
+        .color-picker {
+            width: 30px;
+            height: 30px;
+            border-radius: 50%;
+            border: 2px solid transparent;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px;
+        }
+        .cp-white { background: #eee; color: black; }
+        .cp-black { background: #111; color: white; border: 1px solid #555; }
+        
+        .color-picker.selected {
+            transform: scale(1.1);
+            border-color: #007bff; /* Blue selection ring */
+            box-shadow: 0 0 8px #007bff;
+        }
+
+        /* --- Status --- */
+        .status-bar { height: 25px; margin-bottom: 5px; font-size: 16px; }
+        .error { color: #ff6b6b; }
+        .success { color: #51cf66; font-weight: bold; font-size: 18px; }
+
+        /* --- Game Area --- */
+        .game-area {
+            display: flex;
+            gap: 30px;
+            align-items: center;
+            flex-wrap: wrap;
+            justify-content: center;
+            padding: 20px;
+            border-radius: 10px;
+            border: 1px solid transparent;
+            transition: 0.3s;
+        }
+
+        .game-area.editing {
+            background-color: rgba(255, 255, 255, 0.05);
+            border-color: #555;
+            border-style: dashed;
+        }
+
+        .panel { display: flex; flex-direction: column; align-items: center; }
+        .label { margin-bottom: 10px; color: #888; font-size: 12px; text-transform: uppercase; letter-spacing: 1px; }
+
+        /* --- Grid --- */
+        .board {
+            display: grid;
+            grid-template-columns: repeat(4, 60px);
+            grid-template-rows: repeat(4, 60px);
+            gap: 4px;
+        }
+
+        .cell {
+            width: 60px;
+            height: 60px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-size: 40px;
+            border-radius: 4px;
+            position: relative;
+        }
+
+        .cell.void { background: transparent; }
+        .cell.valid { background-color: #2a2a2a; border: 2px solid #444; }
+
+        /* Edit Mode Styles */
+        .editing .cell.void { border: 1px dashed #444; cursor: pointer; }
+        .editing .cell.void:hover { background: rgba(0, 255, 0, 0.1); }
+        .editing-grid .cell.valid:hover { background: rgba(255, 0, 0, 0.2); border-color: #ff4444; cursor: pointer; }
+
+        /* Gameplay Styles */
+        .clickable { cursor: pointer; }
+        .clickable:hover { background-color: #353535; }
+        
+        .selected { background-color: #554a00 !important; border-color: #ffd700 !important; }
+        
+        .possible-move::after {
+            content: '';
+            width: 16px;
+            height: 16px;
+            background-color: #4caf50;
+            border-radius: 50%;
+            opacity: 0.7;
+        }
+
+        /* --- Pieces --- */
+        .knight {
+            pointer-events: none;
+            transition: transform 0.2s;
+            line-height: 1;
+        }
+
+        .k-white { color: #fff; filter: drop-shadow(0 2px 2px rgba(0,0,0,0.8)); }
+        
+        .k-black { 
+            color: #000; 
+            /* White outline to make black piece visible on dark bg */
+            text-shadow: 
+                -1px -1px 0 #888,  
+                1px -1px 0 #888,
+                -1px 1px 0 #888,
+                1px 1px 0 #888;
+        }
+
+    </style>
+</head>
+<body>
+
+    <div class="controls">
+        <div class="row">
+            <button onclick="resetGame()">Reset</button>
+            <button class="btn-edit" id="editBtn" onclick="toggleEditMode()">Edit Puzzle</button>
+        </div>
+
+        <div class="row tool-group" id="editTools">
+            <button class="tool-btn selected" id="toolPiece" onclick="setEditTool('pieces')">Pieces</button>
+            <button class="tool-btn" id="toolGrid" onclick="setEditTool('grid')">Shape</button>
+            
+            <div style="width: 1px; height: 20px; background: #555; margin: 0 5px;"></div>
+
+            <div class="color-picker cp-white selected" id="cpWhite" onclick="setColor('white')">♞</div>
+            <div class="color-picker cp-black" id="cpBlack" onclick="setColor('black')">♞</div>
+        </div>
+    </div>
+
+    <div class="status-bar" id="statusMsg"></div>
+
+    <div class="game-area" id="gameArea">
+        <div class="panel">
+            <div class="label">Your Board</div>
+            <div class="board" id="mainBoard"></div>
+        </div>
+
+        <div style="font-size: 30px; color: #444;">&rarr;</div>
+
+        <div class="panel">
+            <div class="label">Goal Pattern</div>
+            <div class="board" id="goalBoard"></div>
+        </div>
+    </div>
+
+<script>
+    // --- Data ---
+    // Grid: 4x4. 1=Valid, 0=Void
+    let gridShape = [
+        [0,0,0,0], [0,0,0,1], [0,1,1,1], [1,1,1,1] // Staircase (Bottom-Left logic)
+    ];
+
+    // Pieces have {c, r, color}
+    // Default: Start matches left image (White), Target matches right image (Black/White or same color)
+    // To match your original image request: The image showed White moving to White positions.
+    // But since you asked for 2 colors, I'll default to a mix for demo.
+    
+    let startKnights = [
+        {c: 0, r: 0, color: 'white'}, 
+        {c: 0, r: 3, color: 'white'}, 
+        {c: 2, r: 0, color: 'white'}, 
+        {c: 2, r: 1, color: 'white'}
+    ];
+    
+    // Let's make the target slightly interesting: maybe swap 2 to black?
+    // Or keep them white as per original image. Let's keep white for defaults.
+    let targetKnights = [
+        {c: 1, r: 0, color: 'white'}, 
+        {c: 1, r: 2, color: 'white'}, 
+        {c: 2, r: 0, color: 'white'}, 
+        {c: 3, r: 0, color: 'white'}
+    ];
+
+    let currentKnights = [];
+    let selectedIndex = null;
+    let isEditing = false;
+    let editTool = 'pieces'; // 'pieces' or 'grid'
+    let activeColor = 'white'; // 'white' or 'black'
+    let isSolved = false;
+
+    // --- Helpers ---
+    const clone = (o) => JSON.parse(JSON.stringify(o));
+    
+    // Map Cartesian (c, r) to Array [row][col]
+    // r=0 is bottom (Array index 3)
+    function isSquareValid(c, r) {
+        if (c<0 || c>=4 || r<0 || r>=4) return false;
+        return gridShape[3-r][c] === 1;
+    }
+    function setSquareValid(c, r, val) {
+        gridShape[3-r][c] = val ? 1 : 0;
+    }
+
+    function init() {
+        resetGame();
+    }
+
+    function resetGame() {
+        currentKnights = clone(startKnights);
+        selectedIndex = null;
+        isSolved = false;
+        checkWin();
+        render();
+    }
+
+    // --- Edit Controls ---
+    function toggleEditMode() {
+        isEditing = !isEditing;
+        const btn = document.getElementById('editBtn');
+        const tools = document.getElementById('editTools');
+        const area = document.getElementById('gameArea');
+
+        if (isEditing) {
+            btn.textContent = "Done Editing";
+            btn.classList.add('active');
+            tools.classList.add('visible');
+            area.classList.add('editing');
+            // Enter edit: Start config becomes editable canvas
+            currentKnights = clone(startKnights);
+            updateStatus("Edit Mode: Click to add/remove.");
+        } else {
+            btn.textContent = "Edit Puzzle";
+            btn.classList.remove('active');
+            tools.classList.remove('visible');
+            area.classList.remove('editing');
+            // Exit edit: Save canvas as new Start config
+            startKnights = clone(currentKnights);
+            resetGame();
+        }
+        render();
+    }
+
+    function setEditTool(tool) {
+        editTool = tool;
+        document.getElementById('toolPiece').classList.toggle('selected', tool === 'pieces');
+        document.getElementById('toolGrid').classList.toggle('selected', tool === 'grid');
+        
+        const area = document.getElementById('gameArea');
+        if (tool === 'grid') area.classList.add('editing-grid');
+        else area.classList.remove('editing-grid');
+    }
+
+    function setColor(color) {
+        activeColor = color;
+        document.getElementById('cpWhite').classList.toggle('selected', color === 'white');
+        document.getElementById('cpBlack').classList.toggle('selected', color === 'black');
+        setEditTool('pieces'); // Auto-switch back to piece tool if clicking color
+    }
+
+    // --- Interaction ---
+    function handleBoardClick(boardType, c, r) {
+        // boardType: 'main' or 'goal'
+        if (isEditing) handleEditClick(boardType, c, r);
+        else if (boardType === 'main') handlePlayClick(c, r);
+    }
+
+    function handleEditClick(boardType, c, r) {
+        // 1. Grid Editing (Affects both boards visually, but logic runs once)
+        if (editTool === 'grid') {
+            if (boardType === 'goal') return; // Only edit shape on main board to avoid confusion
+            
+            const currentlyValid = isSquareValid(c, r);
+            setSquareValid(c, r, !currentlyValid);
+            
+            // Clean up pieces on deleted squares
+            if (currentlyValid) { // was valid, now invalid
+                currentKnights = currentKnights.filter(k => !(k.c===c && k.r===r));
+                targetKnights = targetKnights.filter(k => !(k.c===c && k.r===r));
+            }
+            validateCounts();
+            render();
+            return;
+        }
+
+        // 2. Piece Editing
+        if (!isSquareValid(c, r)) return;
+
+        // Select which array we are modifying
+        let arr = (boardType === 'main') ? currentKnights : targetKnights;
+
+        const idx = arr.findIndex(k => k.c === c && k.r === r);
+        
+        if (idx === -1) {
+            // Empty -> Add Active Color
+            arr.push({c, r, color: activeColor});
+        } else {
+            // Occupied
+            if (arr[idx].color === activeColor) {
+                // Same color -> Remove
+                arr.splice(idx, 1);
+            } else {
+                // Different color -> Switch
+                arr[idx].color = activeColor;
+            }
+        }
+        
+        validateCounts();
+        render();
+    }
+
+    function handlePlayClick(c, r) {
+        if (isSolved || !isSquareValid(c, r)) return;
+
+        const kIdx = currentKnights.findIndex(k => k.c === c && k.r === r);
+
+        // Select
+        if (kIdx !== -1) {
+            selectedIndex = kIdx;
+            render();
+            return;
+        }
+
+        // Move
+        if (selectedIndex !== null) {
+            const k = currentKnights[selectedIndex];
+            if (canMove(k.c, k.r, c, r)) {
+                k.c = c; 
+                k.r = r;
+                selectedIndex = null;
+                checkWin();
+                render();
+            }
+        }
+    }
+
+    function canMove(c1, r1, c2, r2) {
+        const dx = Math.abs(c1-c2);
+        const dy = Math.abs(r1-r2);
+        return (dx===1 && dy===2) || (dx===2 && dy===1);
+    }
+
+    function validateCounts() {
+        const sW = currentKnights.filter(k=>k.color==='white').length;
+        const sB = currentKnights.filter(k=>k.color==='black').length;
+        const tW = targetKnights.filter(k=>k.color==='white').length;
+        const tB = targetKnights.filter(k=>k.color==='black').length;
+
+        if (sW !== tW || sB !== tB) {
+            updateStatus(`<span class="error">Mismatch! White: ${sW}/${tW}, Black: ${sB}/${tB}</span>`);
+        } else {
+            updateStatus("Counts match.");
+        }
+    }
+
+    function checkWin() {
+        if (isEditing) return;
+
+        // Strictly check that every current knight has an EXACT match (pos + color) in target
+        let matches = 0;
+        currentKnights.forEach(k => {
+            const hasMatch = targetKnights.some(t => t.c === k.c && t.r === k.r && t.color === k.color);
+            if (hasMatch) matches++;
+        });
+
+        if (matches === targetKnights.length && targetKnights.length > 0) {
+            isSolved = true;
+            updateStatus('<span class="success">PUZZLE SOLVED!</span>');
+        } else {
+            updateStatus(isSolved ? "" : "Match patterns and colors.");
+        }
+    }
+
+    function updateStatus(html) {
+        document.getElementById('statusMsg').innerHTML = html;
+    }
+
+    // --- Render ---
+    function render() {
+        renderBoard('mainBoard', currentKnights, true);
+        renderBoard('goalBoard', targetKnights, false);
+    }
+
+    function renderBoard(elId, knights, isMain) {
+        const div = document.getElementById(elId);
+        div.innerHTML = '';
+        
+        for(let r=3; r>=0; r--) {
+            for(let c=0; c<4; c++) {
+                const cell = document.createElement('div');
+                cell.className = 'cell';
+                
+                if (isSquareValid(c, r)) {
+                    cell.classList.add('valid');
+                    
+                    const kIdx = knights.findIndex(k => k.c===c && k.r===r);
+                    if (kIdx !== -1) {
+                        const k = knights[kIdx];
+                        const span = document.createElement('div');
+                        span.className = `knight k-${k.color}`;
+                        span.textContent = '♞';
+                        cell.appendChild(span);
+                    }
+
+                    // Interactive classes
+                    if (isEditing) {
+                        if (editTool==='grid' && isMain) {} // Handled by CSS
+                        else cell.classList.add('clickable');
+                    } else if (isMain && !isSolved) {
+                        cell.classList.add('clickable');
+                        if (selectedIndex !== null && kIdx === selectedIndex) cell.classList.add('selected');
+                        // Highlight moves
+                        if (selectedIndex !== null && kIdx === -1) {
+                            const active = currentKnights[selectedIndex];
+                            if (canMove(active.c, active.r, c, r)) cell.classList.add('possible-move');
+                        }
+                    }
+                } else {
+                    cell.classList.add('void');
+                }
+
+                cell.onclick = () => handleBoardClick(isMain ? 'main' : 'goal', c, r);
+                div.appendChild(cell);
+            }
+        }
+    }
+
+    init();
+
+</script>
+</body>
+</html>
